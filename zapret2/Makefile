@@ -1,0 +1,448 @@
+#
+# Copyright (c) 2025 remittor
+#
+
+include $(TOPDIR)/rules.mk
+
+PKG_NAME:=zapret2
+PKG_VERSION:=1.0.2
+PKG_RELEASE:=1
+
+PKG_MAINTAINER:=bol-van
+PKG_LICENSE:=MIT
+PKG_LICENSE_FILES:=docs/LICENSE.txt
+
+PKG_SOURCE_URL:=https://github.com/bol-van/zapret2.git
+PKG_SOURCE_PROTO:=git
+PKG_SOURCE_VERSION:=4df94497869e18ed4fdf1272141427b2fbfc6604
+PKG_SOURCE_DATE:=2026-06-16
+
+#PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+#PKG_SOURCE_URL:=https://github.com/bol-van/zapret2/archive/refs/tags/v$(PKG_VERSION).tar.gz?
+#PKG_HASH:=skip
+
+include $(INCLUDE_DIR)/package.mk
+include $(INCLUDE_DIR)/host-build.mk
+
+LUA_JIT?=1
+
+ifeq ($(LUA_JIT),1)
+	LUA_VER?=5.1
+	LUA_DEPEND:=
+	LUAJIT_VER?=2.1
+	ifeq ($(ARCH),riscv64)
+		LUAJIT_URL:=https://github.com/infiWang/luajit2/archive
+		LAUJIT_BRANCH:=v2.1-20260114-riscv64
+		LUAJIT_COMMIT=4d8cf882a3a4ed3259407ad78614a60b02dd553f
+		LUAJIT_RELEASE:=2.1-20260114-$(LUAJIT_COMMIT)
+		LUAJIT_URL_FILE:=$(LUAJIT_COMMIT).tar.gz
+	else
+		LUAJIT_URL:=https://github.com/openresty/luajit2/archive/refs/tags
+		LUAJIT_RELEASE:=2.1-20250826
+		LUAJIT_URL_FILE:=v$(LUAJIT_RELEASE).tar.gz
+	endif
+	LUAJIT_TGZ:=$(PKG_NAME)-luajit-$(LUAJIT_RELEASE).tar.gz
+	LUASRC_DIR:=$(PKG_BUILD_DIR)/luajit-$(LUAJIT_RELEASE)
+	LUAOUT_DIR:=$(PKG_BUILD_DIR)/luajit-out
+	LUA_INCLUDE:=-I$(LUAOUT_DIR)/include/luajit-$(LUAJIT_VER)
+	LUA_LIBRARY:=-L$(LUAOUT_DIR)/lib -lluajit-$(LUA_VER)
+else
+	LUA_VER?=5.4
+	LUA_DEPEND:= +lua$(LUA_VER)
+	LUA_INCLUDE:=-I$(STAGING_DIR)/usr/include/lua$(LUA_VER)
+	LUA_LIBRARY:=-L$(STAGING_DIR)/usr/lib -llua$(LUA_VER)
+endif
+
+UPX_VER:=4.2.4
+ifneq ($(filter riscv64,$(ARCH)),)
+  UPX_VER:=5.1.0
+endif
+UPX_URL:=https://github.com/upx/upx/releases/download/v$(UPX_VER)
+UPX_URL_FILE:=upx-$(UPX_VER)-amd64_linux.tar.xz
+UPX_TAR:=$(PKG_NAME)-$(UPX_URL_FILE)
+UPX_DIR:=$(PKG_BUILD_DIR)/upx
+UPX_BIN:=$(UPX_DIR)/upx
+
+ifneq ($(filter mips64,$(ARCH)),)
+  USE_UPX := 0
+else
+  USE_UPX := 1
+endif
+
+#TAR_OPTIONS:=--strip-components 1 $(TAR_OPTIONS)
+#TAR_CMD=$(HOST_TAR) -C $(1) $(TAR_OPTIONS)
+
+MAKE_PATH:=nfq2
+
+define Package/$(PKG_NAME)
+	SECTION:=net
+	CATEGORY:=Network
+	TITLE:=$(PKG_NAME)
+	SUBMENU:=Zapret2
+	URL:=https://github.com/bol-van/zapret2
+	DEPENDS:= +nftables +curl +gzip $(LUA_DEPEND)
+	DEPENDS+= +coreutils +coreutils-sort +coreutils-sleep
+	DEPENDS+= +kmod-nft-nat +kmod-nft-offload +kmod-nft-queue
+	DEPENDS+= +libnetfilter-queue +libmnl +libcap +zlib
+endef
+
+ifeq ($(LUA_JIT),1)
+define Download/$(PKG_NAME)-luajit
+	FILE:=$(LUAJIT_TGZ)
+	URL:=$(LUAJIT_URL)
+	URL_FILE:=$(LUAJIT_URL_FILE)
+	HASH:=skip
+endef
+$(eval $(call Download,$(PKG_NAME)-luajit))
+endif
+
+define Download/$(PKG_NAME)-upx
+	FILE:=$(UPX_TAR)
+	URL:=$(UPX_URL)
+	URL_FILE:=$(UPX_URL_FILE)
+	HASH:=skip
+endef
+$(eval $(call Download,$(PKG_NAME)-upx))
+
+define Build/Prepare
+	$(Build/Prepare/Default)
+	rm -f $(PKG_BUILD_DIR)/$(MAKE_PATH)/nfqws2
+	rm -f $(PKG_BUILD_DIR)/ip2net/ip2net
+	rm -f $(PKG_BUILD_DIR)/mdig/mdig
+	if [ "$(LUA_JIT)" = 1 ]; then \
+		if [ ! -f "$(DL_DIR)/$(LUAJIT_TGZ)" ]; then \
+			echo "ERROR: LuaJIT tarball not found:"; \
+			echo "  $(LUAJIT_TGZ)"; \
+			echo "Run: make package/$(PKG_NAME)/download"; \
+			false; \
+		fi ; \
+		rm -rf $(LUASRC_DIR) ; \
+		mkdir -p $(LUASRC_DIR) ; \
+		tar -xzf "$(DL_DIR)/$(LUAJIT_TGZ)" --strip-components=1 -C "$(LUASRC_DIR)" ; \
+		rm -rf $(LUAOUT_DIR) ; \
+	fi
+	rm -rf $(UPX_DIR)
+	mkdir -p $(UPX_DIR)
+	tar -xf "$(DL_DIR)/$(UPX_TAR)" --strip-components=1 -C "$(UPX_DIR)"
+endef
+
+#define Build/Configure
+#endef
+
+ifeq ($(HOST_ARCH),$(filter $(HOST_ARCH), x86_64 mips64))
+  ifeq ($(CONFIG_ARCH_64BIT),)
+    HOST_BITS := -m32
+  endif
+endif
+
+MAKE_FLAGS += \
+	$(TARGET_CONFIGURE_OPTS) \
+	SOURCE_DATE_EPOCH=$(shell date +%s) \
+	CFLAGS="$(TARGET_CFLAGS) -DZAPRET_GH_VER=$(PKG_VERSION) -DZAPRET_GH_HASH=$(PKG_SOURCE_VERSION)" \
+	LDFLAGS="$(TARGET_LDFLAGS) $(EXTRA_LDFLAGS)"
+
+RSTRIP:=:
+
+define Build/Compile
+	if [ "$(LUA_JIT)" = 1 ]; then \
+		$(MAKE) $(PKG_JOBS) -C $(LUASRC_DIR) \
+			HOST_CC="$(HOSTCC) $(HOST_CFLAGS) $(HOST_BITS)" \
+			CROSS="$(TARGET_CROSS)" \
+			XCFLAGS="-DLUAJIT_DISABLE_FFI" \
+			TARGET_CFLAGS="-Oz -flto=auto -ffunction-sections -fdata-sections $(TARGET_CFLAGS)" \
+			TARGET_LDFLAGS="-flto=auto $(TARGET_LDFLAGS)" \
+			TARGET_AR="$(TARGET_AR) rcus" \
+			BUILDMODE=static \
+			DESTDIR=$(LUAOUT_DIR) \
+			PREFIX= \
+			TARGET_SYS=Linux ; \
+		rm -rf $(LUAOUT_DIR) ; \
+		if [ ! -f $(LUASRC_DIR)/src/libluajit.a ]; then \
+			echo "ERROR: file libluajit.a not found!"; \
+			false; \
+		fi ; \
+		mkdir -p $(LUAOUT_DIR) ; \
+		$(MAKE) -C $(LUASRC_DIR) \
+			DESTDIR=$(LUAOUT_DIR) \
+			PREFIX= \
+			TARGET_SYS=Linux \
+			install ; \
+	fi
+	$(MAKE) -C $(PKG_BUILD_DIR)/$(MAKE_PATH) $(MAKE_FLAGS) LUA_JIT=$(LUA_JIT) LUA_CFLAGS="$(LUA_INCLUDE)" LUA_LIB="$(LUA_LIBRARY)"
+	$(MAKE) -C $(PKG_BUILD_DIR)/ip2net $(MAKE_FLAGS)
+	$(MAKE) -C $(PKG_BUILD_DIR)/mdig   $(MAKE_FLAGS)
+ifeq ($(USE_UPX),1)
+	@if [ -x "$(UPX_BIN)" ]; then \
+		echo "Packing nfqws2 with UPX"; \
+		$(UPX_BIN) --best --lzma --strip-relocs=0 $(PKG_BUILD_DIR)/$(MAKE_PATH)/nfqws2; \
+	else \
+		echo "WARNING: UPX not found, skipping packing"; \
+	fi
+else
+	@echo "Skipping UPX for $(ARCH)"
+endif
+endef
+
+ZAPRET_DIR := /opt/zapret2
+
+define ZAPRET_CONFFILES_LIST
+$(ZAPRET_DIR)/config
+$(ZAPRET_DIR)/ipset/zapret-hosts-google.txt
+$(ZAPRET_DIR)/ipset/zapret-hosts-user.txt
+$(ZAPRET_DIR)/ipset/zapret-hosts-user-exclude.txt
+$(ZAPRET_DIR)/ipset/zapret-ip-exclude.txt
+$(ZAPRET_DIR)/ipset/zapret-hosts-auto.txt
+$(ZAPRET_DIR)/ipset/cust1.txt
+$(ZAPRET_DIR)/ipset/cust2.txt
+$(ZAPRET_DIR)/ipset/cust3.txt
+$(ZAPRET_DIR)/ipset/cust4.txt
+$(ZAPRET_DIR)/init.d/openwrt/custom.d/10-script.sh
+$(ZAPRET_DIR)/init.d/openwrt/custom.d/20-script.sh
+$(ZAPRET_DIR)/init.d/openwrt/custom.d/50-script.sh
+$(ZAPRET_DIR)/init.d/openwrt/custom.d/60-script.sh
+$(ZAPRET_DIR)/init.d/openwrt/custom.d/90-script.sh
+endef
+
+$(eval ZAPRET_CONFFILES := $(foreach file,$(ZAPRET_CONFFILES_LIST),$(strip $(file))))
+
+define Package/$(PKG_NAME)/conffiles
+$(ZAPRET_CONFFILES_LIST)
+endef
+
+define Package/$(PKG_NAME)/install
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/$(MAKE_PATH)
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(MAKE_PATH)/nfqws2 $(1)$(ZAPRET_DIR)/$(MAKE_PATH)/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/ip2net
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/ip2net/ip2net $(1)$(ZAPRET_DIR)/ip2net/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/mdig
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/mdig/mdig $(1)$(ZAPRET_DIR)/mdig/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/common
+	$(CP) $(PKG_BUILD_DIR)/common/* $(1)$(ZAPRET_DIR)/common/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/lua
+	$(CP) $(PKG_BUILD_DIR)/lua/* $(1)$(ZAPRET_DIR)/lua/
+	#$(INSTALL_DIR) $(1)$(ZAPRET_DIR)docs
+	#$(CP) $(PKG_BUILD_DIR)/docs/* $(1)$(ZAPRET_DIR)/docs/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/files
+	$(CP) $(PKG_BUILD_DIR)/files/* $(1)$(ZAPRET_DIR)/files/
+	$(CP)                ./files/* $(1)$(ZAPRET_DIR)/files/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/ipset
+	$(CP) $(PKG_BUILD_DIR)/ipset/* $(1)$(ZAPRET_DIR)/ipset/
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/blockcheck2.d
+	$(CP) $(PKG_BUILD_DIR)/blockcheck2.d/* $(1)$(ZAPRET_DIR)/blockcheck2.d/
+	$(INSTALL_BIN)  $(PKG_BUILD_DIR)/blockcheck2.sh  $(1)$(ZAPRET_DIR)/blockcheck2.sh
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/tmp
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/init.d/openwrt
+	$(CP) $(PKG_BUILD_DIR)/init.d/openwrt/* $(1)$(ZAPRET_DIR)/init.d/openwrt/
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/init.d/openwrt/90-zapret2 $(1)/etc/hotplug.d/iface/90-zapret2
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./init.d.sh $(1)/etc/init.d/zapret2
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/init.d
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/init.d/openwrt
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/init.d/openwrt/custom.d
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	$(INSTALL_BIN) ./uci-def-cfg.sh     $(1)/etc/uci-defaults/zapret2-uci-def-cfg.sh
+	# install all sh-scripts
+	$(CP) ./*.sh $(1)$(ZAPRET_DIR)/
+	rm -f $(1)$(ZAPRET_DIR)/init.d.sh
+	# Install conf files
+	$(foreach cfg,$(ZAPRET_CONFFILES), \
+		rel="$(cfg:$(ZAPRET_DIR)/%=%)"; \
+		src="./$$$$rel"; \
+		if echo "$$$$rel" | grep -q "/custom.d/"; then \
+			src="./custom.d/$$$$(basename $$$$rel)"; \
+		fi; \
+		dst="$(1)$(cfg)"; \
+		mkdir -p "$(1)$(dir $(cfg))"; \
+		rm -f "$$$${dst}"; \
+		if [ -f "$$$${src}" ]; then \
+			$(INSTALL_DATA) "$$$${src}" "$$$${dst}"; \
+		else \
+			$(INSTALL_DATA) /dev/null "$$$${dst}"; \
+		fi; \
+	)
+	# Fix main config file
+	rm -f $(1)$(ZAPRET_DIR)/config
+	$(INSTALL_DATA) ./config.default $(1)$(ZAPRET_DIR)/config
+	$(INSTALL_DATA) ./config.default $(1)$(ZAPRET_DIR)/config.default
+	# Install def conf files
+	$(INSTALL_DIR) $(1)$(ZAPRET_DIR)/ipset_def
+	$(CP) ./ipset/zapret*.txt  $(1)$(ZAPRET_DIR)/ipset_def/
+	# Fix permissions
+	chmod 644 $(1)$(ZAPRET_DIR)/ipset/*.txt
+	chmod 644 $(1)$(ZAPRET_DIR)/ipset_def/*.txt
+	chmod 644 $(1)$(ZAPRET_DIR)/init.d/openwrt/custom.d/*.sh
+	chmod 644 $(1)$(ZAPRET_DIR)/config*
+	chmod 755 $(1)$(ZAPRET_DIR)/*.sh
+	chmod 755 $(1)$(ZAPRET_DIR)/$(MAKE_PATH)/*
+	chmod 755 $(1)$(ZAPRET_DIR)/ip2net/*
+	chmod 755 $(1)$(ZAPRET_DIR)/mdig/*
+endef
+
+define Package/$(PKG_NAME)/preinst
+#!/bin/sh
+# check if we are on real system
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	ZAPRET_DIR=/opt/zapret2
+	ZAPRET_INITD=/etc/init.d/zapret2
+	ZAPRET_CFG=/etc/config/zapret2
+	if [ -f "$${ZAPRET_INITD}" ]; then
+		SCRIPT=$$( readlink "$${ZAPRET_INITD}" )
+		if [ -n "$${SCRIPT}" ]; then
+			echo "Please uninstall incompatible \"zapret2\" service!"
+			exit 44
+		fi
+	fi
+	if command -v apk >/dev/null; then
+		PKG_MGR="apk"
+		PKG_CHECK="apk info -e "
+		PKG_REMOVE="apk del --force "
+	else
+		PKG_MGR="opkg"
+		PKG_CHECK="opkg status "
+		PKG_REMOVE="opkg remove --force-remove "
+	fi
+	if [ "$${PKG_UPGRADE}" = "1" ]; then
+		# stop service if PKG_UPGRADE
+		if [ -x "$${ZAPRET_INITD}" ]; then
+			$${ZAPRET_INITD} running && $${ZAPRET_INITD} stop >/dev/null 2>&1
+		fi
+	fi
+	if $${PKG_CHECK} zapret2 2>/dev/null | grep -q . ; then
+		if [ ! -f "/opt/zapret2/sync_config.sh" ]; then
+			echo "Please uninstall incompatible \"zapret2\" package!"
+			exit 47
+		fi
+		if [ -f "$${ZAPRET_CFG}" ] && ! grep -q "run_on_boot" "$${ZAPRET_CFG}"; then
+			echo "Please uninstall incompatible \"zapret2\" package!"
+			exit 48
+		fi
+	fi
+	if $${PKG_CHECK} luci-app-zapret2 2>/dev/null | grep -q . ; then
+		SVC_FILE=/www/luci-static/resources/view/zapret2/service.js
+		if [ ! -f "$${SVC_FILE}" ] || ! grep -Fq "/remittor/zapret-openwrt" "$${SVC_FILE}"; then
+			echo "Please uninstall incompatible \"luci-app-zapret2\" package!"
+			exit 55
+		fi
+	fi
+	if [ -f "$${ZAPRET_CFG}" ] && ! grep -q "run_on_boot" "$${ZAPRET_CFG}"; then
+		if [ -x "$${ZAPRET_INITD}" ]; then
+			$${ZAPRET_INITD} running && $${ZAPRET_INITD} stop >/dev/null 2>&1
+		fi
+		rm -f $${ZAPRET_CFG}
+		rm -f $${ZAPRET_INITD}
+		[ -d "$${ZAPRET_DIR}" ] && rm -rf $${ZAPRET_DIR}
+		echo "All files of the previously installed package have been removed!"
+	fi
+	if $${PKG_CHECK} zapret2-mdig 2>/dev/null | grep -q . ; then
+		$${PKG_REMOVE} zapret2-mdig
+	fi
+	if $${PKG_CHECK} zapret2-ip2net 2>/dev/null | grep -q . ; then
+		$${PKG_REMOVE} zapret2-ip2net
+	fi
+	if [ ! -d "$${ZAPRET_DIR}" ]; then
+		mkdir -p $${ZAPRET_DIR}
+	fi
+fi
+exit 0
+endef
+
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+# check if we are on real system
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	ZAPRET_DIR=/opt/zapret2
+	ZAPRET_INITD=/etc/init.d/zapret2
+	ZAPRET_CFG=/etc/config/zapret2
+	ZAPRET_CONFIG=/opt/zapret2/config
+	ZAPRET_CONFIG_DEF="/opt/zapret2/config.default"
+	# Fix permissions
+	chmod 644 $${ZAPRET_CFG} >/dev/null 2>&1
+	chmod 644 $${ZAPRET_DIR}/ipset/*.txt >/dev/null 2>&1
+	chmod 644 $${ZAPRET_DIR}/ipset_def/*.txt >/dev/null 2>&1
+	chmod 644 $${ZAPRET_DIR}/init.d/openwrt/custom.d/*.sh >/dev/null 2>&1
+	chmod 644 $${ZAPRET_DIR}/config* >/dev/null 2>&1
+	# cleanup custom.d directory
+	rm -f $${ZAPRET_DIR}/init.d/openwrt/custom.d/*-opkg*
+	rm -f $${ZAPRET_DIR}/init.d/openwrt/custom.d/*.opkg*
+	rm -f $${ZAPRET_DIR}/init.d/openwrt/custom.d/*.apk*
+	# creating main config if its not exists
+	if [ ! -f "$${ZAPRET_CONFIG}" ]; then
+		cp -f "$${ZAPRET_CONFIG_DEF}" "$${ZAPRET_CONFIG}"
+	fi
+	# remove fake uci-config
+	[ -f "$${ZAPRET_CFG}" ] && [ ! -s "$${ZAPRET_CFG}" ] && rm -f "$${ZAPRET_CFG}"
+	# check existing uci-config
+	[ -f "$${ZAPRET_CFG}" ] && ZAPRET_CFG_EXISTS=1 || ZAPRET_CFG_EXISTS=0
+	# create or merge uci-config
+	/opt/zapret2/uci-def-cfg.sh
+	[ "$${ZAPRET_CFG_EXISTS}" = "1" ] && echo "Config /etc/config/zapret2 merged with default uci-config"
+	# remove uci-default script from system dir (used into /etc/init.d/boot)
+	rm -f /etc/uci-defaults/zapret2-uci-def-cfg.sh
+	# copy (sync) all params from uci-config to main config
+	/opt/zapret2/sync_config.sh
+	# check main config
+	sh -n "$${ZAPRET_CONFIG}" 2>/dev/null || cp -f "$${ZAPRET_CONFIG_DEF}" "$${ZAPRET_CONFIG}"
+	sh -n "$${ZAPRET_CONFIG}" 2>/dev/null || exit 58
+	# enable main service
+	$${ZAPRET_INITD} enable
+	# stop all
+	$${ZAPRET_INITD} stop_fw >/dev/null 2>&1
+	$${ZAPRET_INITD} stop_daemons >/dev/null 2>&1
+	ps w | grep '/opt/zapret2/nfq2/nfqws2' | grep -v grep | awk '{print $$1}' | xargs -r kill -9
+	# start main service
+	$${ZAPRET_INITD} start
+	# restart firewall
+	[ -x /sbin/fw4 ] && fw4 -q restart || fw3 -q restart
+fi
+exit 0
+endef
+
+define Package/$(PKG_NAME)/prerm
+#!/bin/sh
+# check if we are on real system
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	ZAPRET_DIR=/opt/zapret2
+	ZAPRET_BASE=/opt/zapret2
+	ZAPRET_INITD=/etc/init.d/zapret2
+	ZAPRET_CFG=/etc/config/zapret2
+	ZAPRET_CONFIG=/opt/zapret2/config
+	ZAPRET_CONFIG_DEF="/opt/zapret2/config.default"
+	OPENWRT_FW_INCLUDE=/etc/firewall.zapret2
+	# check main config
+	sh -n "$${ZAPRET_CONFIG}" 2>/dev/null || cp -f "$${ZAPRET_CONFIG_DEF}" "$${ZAPRET_CONFIG}"
+	if ! sh -n "$${ZAPRET_CONFIG}" 2>/dev/null ; then
+		ps w | grep '/opt/zapret2/nfq2/nfqws2' | grep -v grep | awk '{print $$1}' | xargs -r kill -9
+		exit 0
+	fi
+	. "$${ZAPRET_CONFIG}"
+	. "$${ZAPRET_BASE}/common/base.sh"
+	. "$${ZAPRET_BASE}/common/fwtype.sh"
+	. "$${ZAPRET_BASE}/common/nft.sh"
+	. "$${ZAPRET_BASE}/common/installer.sh"
+	$${ZAPRET_INITD} running && $${ZAPRET_INITD} stop >/dev/null 2>&1
+	$${ZAPRET_INITD} disable >/dev/null 2>&1
+	ps w | grep '/opt/zapret2/nfq2/nfqws2' | grep -v grep | awk '{print $$1}' | xargs -r kill -9
+	remove_openwrt_firewall
+	nft_del_table
+	restart_openwrt_firewall
+fi
+exit 0
+endef
+
+define Package/$(PKG_NAME)/postrm
+#!/bin/sh
+# check if we are on real system
+if [ -z "$${IPKG_INSTROOT}" ]; then
+	rm -f /etc/config/zapret2-opkg*
+	rm -f /etc/config/zapret2.opkg*
+	rm -f /etc/config/zapret2.apk*
+	[ -f "/opt/zapret2/config" ] && cp -f /opt/zapret2/config "/opt/zapret2/config.backup"
+	#rm -rf /opt/zapret2
+	#echo "Directory /opt/zapret2 removed!"
+fi
+exit 0
+endef
+
+$(eval $(call BuildPackage,$(PKG_NAME)))

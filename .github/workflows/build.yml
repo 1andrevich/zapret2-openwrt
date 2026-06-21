@@ -37,11 +37,11 @@ env:
   FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
   MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
   TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
-  REPO_NAME: zapret-openwrt
-  REPO_URL: https://github.com/remittor/zapret-openwrt
-  REPO_LNK: remittor/zapret-openwrt
+  REPO_NAME: zapret2-openwrt
+  REPO_URL: https://github.com/1andrevich/zapret2-openwrt
+  REPO_LNK: 1andrevich/zapret2-openwrt
   REPO_BRANCH: master
-  PKGDIR: ${{ github.workspace }}/zapret-openwrt
+  PKGDIR: ${{ github.workspace }}/zapret2-openwrt
   SDKDIR: /builder
   BUILD_DATE: unknown
   REPO_DATE: unknown
@@ -184,9 +184,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
-          repository: ${{ env.REPO_LNK }}
+          # No `repository:` — check out THIS repo at the ref that triggered the
+          # run (the pushed tag), so a `v1.0.2` tag builds the Makefile at that tag.
           path: ${{ env.REPO_NAME }}
 
       - name: Fix SDK paths
@@ -290,9 +291,9 @@ jobs:
         env:
           ARCH_TAG: ${{ matrix.arch }}
         run: |
-          PKGLIST="package/zapret-openwrt/zapret/compile"
+          PKGLIST="package/zapret-openwrt/zapret2/compile"
           if [ "$ARCH_TAG" = "$LUCI_ARCH" ]; then
-              PKGLIST="$PKGLIST package/zapret-openwrt/luci-app-zapret/compile"
+              PKGLIST="$PKGLIST package/zapret-openwrt/luci-app-zapret2/compile"
           fi
           MAKE_JOBS=$(nproc)
           echo "$MAKE_JOBS thread compile"
@@ -312,8 +313,8 @@ jobs:
         run: |
           OUT_DIR=./bin/packages/dev_x/base
           mkdir -p $OUT_DIR
-          touch $OUT_DIR/zapret_$PKGVER-$ARCH_TAG.$PKGTYPE
-          touch $OUT_DIR/luci-app-zapret_$PKGVER-all.$PKGTYPE
+          touch $OUT_DIR/zapret2_$PKGVER-$ARCH_TAG.$PKGTYPE
+          touch $OUT_DIR/luci-app-zapret2_$PKGVER-all.$PKGTYPE
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Install packages
@@ -324,7 +325,7 @@ jobs:
           ARCH_TAG: ${{ matrix.arch }}
           SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         run: |
-          find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.[ai]pk$" -delete
+          find ./bin/packages/*/base -type f ! -regex ".*\(zapret2\).*\.[ai]pk$" -delete
           #echo ">>>>>>> build a repository index to make the output directory usable as local OPKG source"
           #ln -s `which usign` staging_dir/host/bin/usign
           #echo "$SIGN_KEY" | base64 -d > key-build
@@ -346,7 +347,7 @@ jobs:
 
       - name: Upload packages
         if: steps.install.outcome == 'success'
-        uses: actions/upload-artifact@main
+        uses: actions/upload-artifact@v7
         with:
           path: ${{ env.OUTDIR }}
           name: zapret,${{ env.PKGTYPE }},${{ matrix.arch }}
@@ -354,7 +355,7 @@ jobs:
 
       - name: Upload build logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           path: logs-*.tar.xz
           name: logs-${{ matrix.branch }}-${{ matrix.arch }}
@@ -366,35 +367,41 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: zapret,*
 
-      - name: Put packages into zip
+      - name: Collect raw ipk/apk assets
         env:
-          TAG: ${{ needs.check.outputs.tag }}
-          DATE: ${{ needs.check.outputs.date }}
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
           PKGVER: ${{ needs.build.outputs.pkgver }}
         run: |
           echo "------------- DIR BEG -------------------"
           ls -la
           echo "------------- DIR END -------------------"
-          mkdir -p sorted
-          find . -maxdepth 1 -type d -name "zapret,ipk,*" -exec sh -c 'mkdir -p sorted/$(basename "{}" | cut -d, -f3)' \;
-          find . -maxdepth 1 -type d -name "zapret,apk,*" -exec sh -c 'mkdir -p sorted/$(basename "{}" | cut -d, -f3)/apk' \;
-          find . -maxdepth 1 -type d -name "zapret,ipk,*" -exec sh -c 'cp -R "{}/." sorted/$(basename "{}" | cut -d, -f3)' \;
-          find . -maxdepth 1 -type d -name "zapret,apk,*" -exec sh -c 'cp -R "{}/." sorted/$(basename "{}" | cut -d, -f3)/apk' \;
-          LUCI_IPK=$( find . -type f -path "*/zapret,ipk,*/luci-app-zapret*.ipk" -print | head -n 1 )
-          LUCI_APK=$( find . -type f -path "*/zapret,apk,*/luci-app-zapret*.apk" -print | head -n 1 )
-          find ./sorted -mindepth 1 -maxdepth 1 -type d -exec cp -f "$LUCI_IPK" "{}/" \;
-          find ./sorted -mindepth 2 -maxdepth 2 -type d -name "apk" -exec cp -f "$LUCI_APK" "{}/" \;
           mkdir -p public
-          find ./sorted -mindepth 1 -maxdepth 1 -type d -exec sh -c '7z a ./public/zapret_v${PKGVER}_$(basename "{}" | cut -d, -f3).zip {}/*' \;
-          ls -lh ./public/*.zip
+          # Each artifact dir is named  zapret,<ipk|apk>,<arch>  and holds the raw
+          # package files. Flatten them into ./public, guaranteeing the arch is in
+          # every per-arch filename so nothing collides (OpenWrt apk filenames omit
+          # the arch). Arch-independent luci-app (*_all*) is copied once.
+          for dir in zapret,*; do
+            [ -d "$dir" ] || continue
+            ext=$(basename "$dir" | cut -d, -f2)
+            arch=$(basename "$dir" | cut -d, -f3)
+            find "$dir" -maxdepth 1 -type f \( -name '*.ipk' -o -name '*.apk' \) | while read -r f; do
+              bn=$(basename "$f"); stem="${bn%.*}"; e="${bn##*.}"
+              case "$stem" in
+                *_all|*-all|*_all_*|*-all-*)   dest="$bn" ;;          # luci-app (arch-independent)
+                *"$arch"*)                     dest="$bn" ;;          # already carries arch (ipk)
+                *)                             dest="${stem}_${arch}.${e}" ;;  # inject arch (apk)
+              esac
+              cp -f "$f" "public/$dest"
+            done
+          done
+          echo "------------- ASSETS -------------------"
+          ls -lh ./public/
 
       - name: Upload assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.check.outputs.tag }}
@@ -402,7 +409,7 @@ jobs:
           draft: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
           prerelease: true
           tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
-          name: zapret v${{ needs.build.outputs.pkgver }}
+          name: zapret2 v${{ needs.build.outputs.pkgver }}
           body: |
-            zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-          files: ./public/*.zip
+            zapret2 v${{ needs.build.outputs.pkgver }} (nfqws2) for OpenWrt — raw ipk/apk per arch
+          files: ./public/*
