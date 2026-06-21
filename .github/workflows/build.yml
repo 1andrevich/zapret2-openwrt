@@ -75,14 +75,25 @@ jobs:
           tar xzf emb.tar.gz -C emb --strip-components=1
 
       - name: Setup APK signing key
-        # Optional: add SIGN_PRIVATE_KEY (base64 usign private key) to repo secrets
-        # to sign APKs. Unsigned packages still install fine.
+        # Optional: add SIGN_PRIVATE_KEY to repo secrets to sign APKs. It must be an
+        # openssl PEM PRIVATE key (RSA recommended), raw or base64-encoded — NOT a
+        # usign key. Unsigned packages still install fine. The matching public key is
+        # derived and published to the release by the `release` job.
+        env:
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         run: |
-          if [ -n "${{ secrets.SIGN_PRIVATE_KEY }}" ]; then
-            echo "${{ secrets.SIGN_PRIVATE_KEY }}" > /tmp/sign.key
-            chmod 600 /tmp/sign.key
-            echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
+          [ -z "$SIGN_PRIVATE_KEY" ] && exit 0
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          if openssl pkey -in /tmp/sign.raw -noout 2>/dev/null; then
+            cp /tmp/sign.raw /tmp/sign.key
+          elif base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && openssl pkey -in /tmp/sign.dec -noout 2>/dev/null; then
+            cp /tmp/sign.dec /tmp/sign.key
+          else
+            echo "::error::SIGN_PRIVATE_KEY is not a valid PEM private key (raw or base64). Generate one with: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out priv.pem"
+            exit 1
           fi
+          chmod 600 /tmp/sign.key
+          echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
 
       - name: Build packages
         run: |
@@ -123,12 +134,21 @@ jobs:
             | sudo tee /usr/local/bin/ipkg-build > /dev/null
           sudo chmod +x /usr/local/bin/ipkg-build
       - name: Setup APK signing key
+        env:
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         run: |
-          if [ -n "${{ secrets.SIGN_PRIVATE_KEY }}" ]; then
-            echo "${{ secrets.SIGN_PRIVATE_KEY }}" > /tmp/sign.key
-            chmod 600 /tmp/sign.key
-            echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
+          [ -z "$SIGN_PRIVATE_KEY" ] && exit 0
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          if openssl pkey -in /tmp/sign.raw -noout 2>/dev/null; then
+            cp /tmp/sign.raw /tmp/sign.key
+          elif base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && openssl pkey -in /tmp/sign.dec -noout 2>/dev/null; then
+            cp /tmp/sign.dec /tmp/sign.key
+          else
+            echo "::error::SIGN_PRIVATE_KEY is not a valid PEM private key (raw or base64)"
+            exit 1
           fi
+          chmod 600 /tmp/sign.key
+          echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
       - name: Build luci-app-zapret2 (noarch)
         run: bash .github/build-luci-zapret2.sh "${{ needs.meta.outputs.version }}"
       - uses: actions/upload-artifact@v7
@@ -149,6 +169,19 @@ jobs:
           pattern: pkgs-*
           merge-multiple: true
           path: packages/
+      - name: Publish public signing key
+        # Derive the public key from the private signing key and ship it so users can
+        # trust the signed .apk files. apk matches keys by pubkey hash, not filename,
+        # so the file just needs to land in /etc/apk/keys/ on the client.
+        env:
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+        run: |
+          [ -z "$SIGN_PRIVATE_KEY" ] && { echo "No signing key — packages are unsigned, no .pub to publish."; exit 0; }
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          openssl pkey -in /tmp/sign.raw -noout 2>/dev/null || { base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && mv /tmp/sign.dec /tmp/sign.raw; }
+          openssl pkey -in /tmp/sign.raw -pubout -out packages/zapret2-1andrevich.rsa.pem
+          echo "Published public key:"; cat packages/zapret2-1andrevich.rsa.pem
+
       - name: List assets
         run: ls -lh packages/
       - name: Create release
@@ -169,6 +202,11 @@ jobs:
 
             Install the matching `zapret2_*` package (`.apk` on apk systems,
             `.ipk` on opkg) plus the noarch `luci-app-zapret2` for the LuCI UI.
+
+            **Signed APKs:** to trust them, drop `zapret2-1andrevich.rsa.pem` into
+            `/etc/apk/keys/` on the router. Unsigned installs still work with
+            `apk add --allow-untrusted`.
           files: |
             packages/*.ipk
             packages/*.apk
+            packages/*.pem

@@ -12,7 +12,8 @@ SRC="$SCRIPT_DIR/../luci-app-zapret2"
 OUT_DIR="$SCRIPT_DIR/out"
 mkdir -p "$OUT_DIR"
 
-DEPENDS="luci-base, zapret2"
+DEPENDS="luci-base, zapret2"       # ipk/opkg form (comma-separated)
+APK_DEPENDS="${DEPENDS//, / }"      # apk form (space-separated)
 
 BASE="$(mktemp -d)"
 mkdir -p "$BASE/www"
@@ -64,7 +65,7 @@ apk mkpkg \
     --info "origin:luci-app-zapret2" \
     --info "url:https://github.com/remittor/zapret-openwrt" \
     --info "license:MIT" \
-    --info "depends:$DEPENDS" \
+    --info "depends:$APK_DEPENDS" \
     --script "post-install:$POSTINST" \
     --script "post-upgrade:$POSTINST" \
     ${APK_SIGN_KEY:+--sign-key "$APK_SIGN_KEY"} \

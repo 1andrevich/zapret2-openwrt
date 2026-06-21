@@ -35,8 +35,12 @@ done
 # any that have no source file (cust*.txt, extra custom.d scripts, auto hosts).
 CONFFILES="$(cat "$CTRL/conffiles")"
 
-# DEPENDS — kept identical to remittor's Makefile (LUA_JIT=1 => no lua dep).
-PKG_DEPENDS="nftables, curl, gzip, coreutils, coreutils-sort, coreutils-sleep, kmod-nft-nat, kmod-nft-offload, kmod-nft-queue, libnetfilter-queue, libmnl, libcap, zlib"
+# DEPENDS. The .so libs (libnetfilter-queue/libmnl/libcap/zlib) from upstream's
+# Makefile are dropped: the prebuilt binaries are statically linked and don't load
+# them. opkg/ipk wants a comma-separated list; apk wants space-separated (passing
+# commas makes apk treat "nftables," — with the comma — as the package name).
+PKG_DEPENDS="nftables, curl, gzip, coreutils, coreutils-sort, coreutils-sleep, kmod-nft-nat, kmod-nft-offload, kmod-nft-queue"
+APK_DEPENDS="${PKG_DEPENDS//, / }"
 
 stage_base() {
     local D="$1"
@@ -127,7 +131,7 @@ EOF
         --info "origin:zapret2" \
         --info "url:https://github.com/bol-van/zapret2" \
         --info "license:MIT" \
-        --info "depends:$PKG_DEPENDS" \
+        --info "depends:$APK_DEPENDS" \
         --script "pre-install:$CTRL/preinst" \
         --script "post-install:$CTRL/postinst" \
         --script "pre-upgrade:$CTRL/preinst" \
