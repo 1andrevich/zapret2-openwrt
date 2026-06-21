@@ -179,8 +179,8 @@ jobs:
           [ -z "$SIGN_PRIVATE_KEY" ] && { echo "No signing key — packages are unsigned, no .pub to publish."; exit 0; }
           printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
           openssl pkey -in /tmp/sign.raw -noout 2>/dev/null || { base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && mv /tmp/sign.dec /tmp/sign.raw; }
-          openssl pkey -in /tmp/sign.raw -pubout -out packages/zapret2-1andrevich.rsa.pem
-          echo "Published public key:"; cat packages/zapret2-1andrevich.rsa.pem
+          openssl pkey -in /tmp/sign.raw -pubout -out packages/zapret2-1andrevich.pub
+          echo "Published public key:"; cat packages/zapret2-1andrevich.pub
 
       - name: List assets
         run: ls -lh packages/
@@ -203,10 +203,10 @@ jobs:
             Install the matching `zapret2_*` package (`.apk` on apk systems,
             `.ipk` on opkg) plus the noarch `luci-app-zapret2` for the LuCI UI.
 
-            **Signed APKs:** to trust them, drop `zapret2-1andrevich.rsa.pem` into
+            **Signed APKs:** to trust them, drop `zapret2-1andrevich.pub` into
             `/etc/apk/keys/` on the router. Unsigned installs still work with
             `apk add --allow-untrusted`.
           files: |
             packages/*.ipk
             packages/*.apk
-            packages/*.pem
+            packages/*.pub
