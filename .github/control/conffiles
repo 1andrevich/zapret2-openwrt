@@ -1,0 +1,15 @@
+/opt/zapret2/config
+/opt/zapret2/ipset/zapret-hosts-google.txt
+/opt/zapret2/ipset/zapret-hosts-user.txt
+/opt/zapret2/ipset/zapret-hosts-user-exclude.txt
+/opt/zapret2/ipset/zapret-ip-exclude.txt
+/opt/zapret2/ipset/zapret-hosts-auto.txt
+/opt/zapret2/ipset/cust1.txt
+/opt/zapret2/ipset/cust2.txt
+/opt/zapret2/ipset/cust3.txt
+/opt/zapret2/ipset/cust4.txt
+/opt/zapret2/init.d/openwrt/custom.d/10-script.sh
+/opt/zapret2/init.d/openwrt/custom.d/20-script.sh
+/opt/zapret2/init.d/openwrt/custom.d/50-script.sh
+/opt/zapret2/init.d/openwrt/custom.d/60-script.sh
+/opt/zapret2/init.d/openwrt/custom.d/90-script.sh

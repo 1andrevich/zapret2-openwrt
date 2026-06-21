@@ -1,0 +1,11 @@
+#!/bin/sh
+# check if we are on real system
+if [ -z "${IPKG_INSTROOT}" ]; then
+	rm -f /etc/config/zapret2-opkg*
+	rm -f /etc/config/zapret2.opkg*
+	rm -f /etc/config/zapret2.apk*
+	[ -f "/opt/zapret2/config" ] && cp -f /opt/zapret2/config "/opt/zapret2/config.backup"
+	#rm -rf /opt/zapret2
+	#echo "Directory /opt/zapret2 removed!"
+fi
+exit 0
