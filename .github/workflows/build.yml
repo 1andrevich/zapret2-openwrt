@@ -2,407 +2,211 @@ name: build
 
 on:
   workflow_dispatch:
-    inputs:
-      test_build:
-        description: 'Test build'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-        - true
-        - false
-      fake_build:
-        description: 'Fake build'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-        - true
-        - false
-      max_speed:
-        description: 'Build with max speed'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-        - true
-        - false
-
-  push:
-    tags:
-      - v[0-9]+*
-
-env:
-  TEST_BUILD: ${{ github.event.inputs.test_build == 'true' }}
-  FAKE_BUILD: ${{ github.event.inputs.fake_build == 'true' }}
-  MAX_SPEED: ${{ github.event.inputs.max_speed != 'false' }}
-  TAG_SUFFIX: ${{ github.event.inputs.fake_build == 'true' && '-fake' || github.event.inputs.test_build == 'true' && '-test' || '' }}
-  REPO_NAME: zapret-openwrt
-  REPO_URL: https://github.com/remittor/zapret-openwrt
-  REPO_LNK: remittor/zapret-openwrt
-  REPO_BRANCH: master
-  PKGDIR: ${{ github.workspace }}/zapret-openwrt
-  SDKDIR: /builder
-  BUILD_DATE: unknown
-  REPO_DATE: unknown
-  LUCI_ARCH: aarch64_cortex-a53
 
 jobs:
-  check:
-    runs-on: ubuntu-24.04 
+  meta:
+    runs-on: ubuntu-latest
     outputs:
-      tag: ${{ steps.gh.outputs.tag }}
-      date: ${{ steps.gh.outputs.date }}
-      sha: ${{ steps.gh.outputs.sha }}
-      url: ${{ steps.gh.outputs.url }}
-      message: ${{ steps.gh.outputs.message }}
-      build_date: ${{ steps.gh.outputs.build_date }}
-      fw_date: ${{ steps.gh.outputs.fw_date }}
-      is_active: ${{ steps.activity.outputs.is_active }}
-      test_build: ${{ env.TEST_BUILD }}
-      fake_build: ${{ env.FAKE_BUILD }}
+      version: ${{ steps.v.outputs.version }}
+      tag:     ${{ steps.v.outputs.tag }}
     steps:
-      - name: Get repo data via GH API
-        id: gh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/checkout@v7
+      - id: v
+        name: Read package version
         run: |
-          echo "Tag name from GITHUB_REF_NAME: $GITHUB_REF_NAME"
-          echo "Tag name from github.ref_name: ${{ github.ref_name }}"
-          BRANCH=$(gh api repos/$REPO_LNK --jq '.default_branch')
-          REPO_DATE=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.committer.date')
-          BUILD_DATE=$( date --utc +'%Y%m%d' )
-          FW_DATE=$( date --utc +'%Y-%m-%d' )
-          {
-            echo "tag=$GITHUB_REF_NAME"
-            echo "date=$(date --utc -d $REPO_DATE +%Y%m%d)"
-            echo "sha=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.sha[0:7]')"
-            echo "url=$(gh api repos/$REPO_LNK/commits/$BRANCH --jq '.html_url')"
-            echo "message<<EOF"
-            gh api repos/$REPO_LNK/commits/$BRANCH --jq '.commit.message'
-            echo EOF
-            echo "build_date=$BUILD_DATE"
-            echo "fw_date=$FW_DATE"
-          } >> $GITHUB_OUTPUT
-          echo "REPO_DATE=$REPO_DATE" >> $GITHUB_ENV
-
-      - name: Check for repo activity
-        id: activity
-        env:
-          REPO_DATE: ${{ env.REPO_DATE }}
-          URL: ${{ steps.gh.outputs.url }}
-        run: |
-          TIMESTAMP=$(date --utc -d $REPO_DATE +%s)
-          DAYS=$(( ( $(date --utc +%s) - $TIMESTAMP ) / 86400 ))
-          echo "Repository activity: $(date --utc -d $REPO_DATE)"
-          echo "Commit: $URL"
-          if [ "${{ github.event_name }}" != "schedule" ]; then
-            is_active=true
-          elif [[ $DAYS -lt 1 ]] ; then
-            is_active=true
-          else
-            echo "Repository not updated within last 24 hours."
-            is_active=false
-          fi
-          echo "is_active=$is_active" >> $GITHUB_OUTPUT
-
-  var:
-    runs-on: ubuntu-24.04 
-    outputs:
-      IPK_BRANCH: ${{ steps.set.outputs.IPK_BRANCH }}
-      APK_BRANCH: ${{ steps.set.outputs.APK_BRANCH }}
-      XXX_BRANCH: ${{ steps.set.outputs.XXX_BRANCH }}
-    steps:
-      - id: set
-        run: |
-          echo "IPK_BRANCH=v24.10.5" >> "$GITHUB_OUTPUT"
-          echo "APK_BRANCH=v25.12.0" >> "$GITHUB_OUTPUT"
-          echo "XXX_BRANCH=SNAPSHOT" >> "$GITHUB_OUTPUT"
+          VERSION=$(grep -E '^PKG_VERSION' zapret2/Makefile | head -1 | cut -d: -f2 | tr -d '= ')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION"    >> "$GITHUB_OUTPUT"
+          echo "zapret2 version: $VERSION"
 
   build:
-    needs: [ check, var ]
-    #if: needs.check.outputs.is_active == 'true'
-    name: "${{ matrix.branch }}: ${{ matrix.arch }}"
-    runs-on: ubuntu-24.04
+    needs: meta
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        branch:
-          - ${{ needs.var.outputs.IPK_BRANCH }}
-          - ${{ needs.var.outputs.APK_BRANCH }}
-        arch:
-          - aarch64_cortex-a53
-          - aarch64_cortex-a72
-          - aarch64_cortex-a76
-          - aarch64_generic
-          - arm_arm1176jzf-s_vfp
-          - arm_arm926ej-s
-          - arm_cortex-a15_neon-vfpv4
-          - arm_cortex-a5_vfpv4
-          - arm_cortex-a7
-          - arm_cortex-a7_neon-vfpv4
-          - arm_cortex-a7_vfpv4
-          - arm_cortex-a8_vfpv3
-          - arm_cortex-a9
-          - arm_cortex-a9_neon
-          - arm_cortex-a9_vfpv3-d16
-          - arm_fa526
-          - arm_xscale
-          - mips64_octeonplus
-          - mips_24kc
-          - mips_4kec
-          - mips_mips32
-          - mipsel_24kc
-          - mipsel_24kc_24kf
-          - mipsel_74kc
-          - mipsel_mips32
-          - riscv64_generic
-          - x86_64
-        isTestOrFake:
-          - ${{ needs.check.outputs.test_build == 'true' || needs.check.outputs.fake_build == 'true' }}
-        exclude:
-          - branch: ${{ needs.var.outputs.APK_BRANCH }}
-            arch: arm_cortex-a9_vfpv3-d16
-          - branch: ${{ needs.var.outputs.APK_BRANCH }}
-            arch: mips_4kec
-          - branch: ${{ needs.var.outputs.IPK_BRANCH }}
-            arch: riscv64_generic
-          - { isTestOrFake: true }
         include:
-          - branch: ${{ needs.var.outputs.IPK_BRANCH }}
-            arch: x86_64
-          - branch: ${{ needs.var.outputs.IPK_BRANCH }}
-            arch: aarch64_cortex-a53
-          - branch: ${{ needs.var.outputs.APK_BRANCH }}
-            arch: aarch64_cortex-a53
-    container:
-      image: ghcr.io/openwrt/sdk:${{ matrix.arch }}-${{ matrix.branch }}
-      options: --user root
-
-    outputs:
-      pkgver: ${{ steps.prepare.outputs.pkgver }}
-
+          - bin_subdir: linux-arm64
+            openwrt_arches: aarch64_cortex-a53 aarch64_cortex-a72 aarch64_cortex-a76 aarch64_generic
+          - bin_subdir: linux-arm
+            openwrt_arches: arm_cortex-a5 arm_cortex-a5_vfpv4 arm_cortex-a7 arm_cortex-a7_neon-vfpv4 arm_cortex-a7_vfpv4 arm_cortex-a8 arm_cortex-a8_vfpv3 arm_cortex-a9 arm_cortex-a9_neon arm_cortex-a9_vfpv3-d16 arm_cortex-a15_neon-vfpv4 arm_arm1176jzf-s_vfp arm_arm926ej-s arm_fa526 arm_mpcore arm_xscale
+          - bin_subdir: linux-mips
+            openwrt_arches: mips_24kc mips_4kec mips_mips32
+          - bin_subdir: linux-mipsel
+            openwrt_arches: mipsel_24kc mipsel_24kc_24kf mipsel_74kc mipsel_mips32
+          - bin_subdir: linux-mips64
+            openwrt_arches: mips64_octeonplus
+          - bin_subdir: linux-x86_64
+            openwrt_arches: x86_64
+          - bin_subdir: linux-x86
+            openwrt_arches: i386_pentium4 i386_pentium-mmx x86_geode
+          - bin_subdir: linux-riscv64
+            openwrt_arches: riscv64_riscv64
+          - bin_subdir: linux-ppc
+            openwrt_arches: powerpc_8540 powerpc_464fp
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ env.REPO_LNK }}
-          path: ${{ env.REPO_NAME }}
+      - uses: actions/checkout@v7
 
-      - name: Fix SDK paths
-        run: |
-          mkdir -p $SDKDIR/shared-workdir
-          rm -rf $SDKDIR/shared-workdir/build
-          ln -sf $SDKDIR $SDKDIR/shared-workdir/build
-
-      - name: Initialization environment
-        working-directory: ${{ env.SDKDIR }}
+      - name: Setup packaging tools (apk-tools + ipkg-build)
         env:
           DEBIAN_FRONTEND: noninteractive
-          ARCH_TAG: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          FAKE_BUILD: ${{ env.FAKE_BUILD == 'true' || ( env.TEST_BUILD == 'true' && matrix.branch == needs.var.outputs.APK_BRANCH ) }}
         run: |
-          if [ "$BRANCH" = "${{ needs.var.outputs.IPK_BRANCH }}" ]; then
-              echo "PKGTYPE=ipk" >> $GITHUB_ENV
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y build-essential fakeroot libssl-dev meson ninja-build
+          git clone https://git.alpinelinux.org/apk-tools apk-tools-src
+          pushd apk-tools-src
+          git checkout b5a31c0d865342ad80be10d68f1bb3d3ad9b0866
+          meson setup build \
+            -Db_lto=true -Dcompressed-help=false -Ddocs=disabled -Dhelp=disabled \
+            -Dlua_version=disabled -Ddefault_library=static -Durl_backend=wget \
+            -Dzstd=false -Dpython=disabled -Dtests=disabled -Dcrypto_backend=openssl
+          ninja -C build
+          sudo meson install -C build --strip
+          popd
+          curl -fsSL "https://raw.githubusercontent.com/openwrt/openwrt/master/scripts/ipkg-build" \
+            | sudo tee /usr/local/bin/ipkg-build > /dev/null
+          sudo chmod +x /usr/local/bin/ipkg-build
+
+      - name: Download prebuilt zapret2 binaries
+        run: |
+          TAG="${{ needs.meta.outputs.tag }}"
+          wget -q "https://github.com/bol-van/zapret2/releases/download/${TAG}/zapret2-${TAG}-openwrt-embedded.tar.gz" -O emb.tar.gz
+          mkdir -p emb
+          tar xzf emb.tar.gz -C emb --strip-components=1
+
+      - name: Setup APK signing key
+        # Optional: add SIGN_PRIVATE_KEY to repo secrets to sign APKs. It must be an
+        # openssl PEM PRIVATE key (RSA recommended), raw or base64-encoded — NOT a
+        # usign key. Unsigned packages still install fine. The matching public key is
+        # derived and published to the release by the `release` job.
+        env:
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+        run: |
+          [ -z "$SIGN_PRIVATE_KEY" ] && exit 0
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          if openssl pkey -in /tmp/sign.raw -noout 2>/dev/null; then
+            cp /tmp/sign.raw /tmp/sign.key
+          elif base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && openssl pkey -in /tmp/sign.dec -noout 2>/dev/null; then
+            cp /tmp/sign.dec /tmp/sign.key
           else
-              echo "PKGTYPE=apk" >> $GITHUB_ENV
+            echo "::error::SIGN_PRIVATE_KEY is not a valid PEM private key (raw or base64). Generate one with: openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out priv.pem"
+            exit 1
           fi
-          mkdir -p ./logs
-          #echo ============== $SDKDIR ======================
-          #ls -la $SDKDIR
-          #echo ----------------------------------------------
-          echo "FAKE_BUILD=$FAKE_BUILD" >> $GITHUB_ENV
-          echo "ARCH_TAG=$ARCH_TAG" >> $GITHUB_ENV
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "TZ=UTC" >> $GITHUB_ENV
-
-      - name: Setup OpenWrt SDK
-        if: false
-        working-directory: ${{ env.SDKDIR }}
-        run: |
-          # gpg --verbose --recv-keys 0x1D53D1877742E911
-          # gpg --verbose --import <(wget -qO- 'https://git.openwrt.org/?p=keyring.git;a=blob_plain;f=gpg/0x1D53D1877742E911.asc')
-          gpg --verbose --import <(wget -qO- 'https://raw.githubusercontent.com/openwrt/keyring/refs/heads/master/gpg/0x1D53D1877742E911.asc')
-          # disable check signatures
-          sed -i 's/gpg --/#gpg --/g' setup.sh
-          # disable cleanup keys
-          sed -r -i 's/^rm.+//' setup.sh
-          ./setup.sh
-          ls -lh
-
-      - name: Setup ccache
-        if: false
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SDKDIR }}/.ccache
-          key: ccache-${{ matrix.arch }}-${{ matrix.branch }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ matrix.arch }}-${{ matrix.branch }}-
-
-      - name: Prepare packages
-        id: prepare
-        working-directory: ${{ env.SDKDIR }}
-        run: |
-          MKFN=$( ls -1 $PKGDIR/luci-app-zapret*/Makefile )
-          PKGVER=$( grep -s '^PKG_VERSION:=.*' $MKFN | cut -d'=' -f2 )
-          PKGREL=$( grep -s '^PKG_RELEASE:=.*' $MKFN | cut -d'=' -f2 )
-          [ "$PKGREL" != "1" ] && PKGVER=$PKGVER-r$PKGREL
-          echo "PKG_VERSION = $PKGVER"
-          cp -vr $PKGDIR ./package/$REPO_NAME/
-          echo "PKGVER=$PKGVER" >> $GITHUB_ENV
-          echo "pkgver=$PKGVER" >> $GITHUB_OUTPUT
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Init packages
-        id: init
-        if: steps.prepare.outputs.status == 'success'
-        working-directory: ${{ env.SDKDIR }}
-        run: |
-          mv feeds.conf.default feeds.conf
-          sed -i -e 's|base.*\.git|base https://github.com/openwrt/openwrt.git|' feeds.conf
-          sed -i -e 's|packages.*\.git|packages https://github.com/openwrt/packages.git|' feeds.conf
-          sed -i -e 's|luci.*\.git|luci https://github.com/openwrt/luci.git|' feeds.conf
-          ./scripts/feeds update base packages luci
-          ./scripts/feeds install -a
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Init config
-        id: config
-        if: steps.init.outputs.status == 'success'
-        working-directory: ${{ env.SDKDIR }}
-        run: |
-          make defconfig
-          sed -i 's/CONFIG_LUCI_JSMIN=y/CONFIG_LUCI_JSMIN=n/g' .config
-          sed -i 's/CONFIG_LUCI_CSSTIDY=y/CONFIG_LUCI_CSSTIDY=n/g' .config
-          grep -q '^CONFIG_LUCI_CSSTIDY=' .config || echo 'CONFIG_LUCI_CSSTIDY=n' >> .config
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Show config
-        working-directory: ${{ env.SDKDIR }}
-        run: |
-          cat .config || echo "File .config not found"
+          chmod 600 /tmp/sign.key
+          echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
 
       - name: Build packages
-        id: build
-        if: steps.config.outputs.status == 'success' && env.FAKE_BUILD != 'true'
-        working-directory: ${{ env.SDKDIR }}
-        env:
-          ARCH_TAG: ${{ matrix.arch }}
         run: |
-          PKGLIST="package/zapret-openwrt/zapret/compile"
-          if [ "$ARCH_TAG" = "$LUCI_ARCH" ]; then
-              PKGLIST="$PKGLIST package/zapret-openwrt/luci-app-zapret/compile"
-          fi
-          MAKE_JOBS=$(nproc)
-          echo "$MAKE_JOBS thread compile"
-          if [ "$MAX_SPEED" != "true" ]; then
-              make $PKGLIST V=sc BUILD_LOG=1
-          else
-              make $PKGLIST -j$MAKE_JOBS
-          fi
-          echo "status=success" >> $GITHUB_OUTPUT
+          bash .github/build-zapret2.sh \
+            "${{ needs.meta.outputs.version }}" \
+            "$PWD/emb" \
+            "${{ matrix.bin_subdir }}" \
+            "${{ matrix.openwrt_arches }}"
 
-      - name: Build packages (FAKE)
-        id: build_fake
-        if: env.FAKE_BUILD == 'true'
-        working-directory: ${{ env.SDKDIR }}
-        env:
-          ARCH_TAG: ${{ matrix.arch }}
-        run: |
-          OUT_DIR=./bin/packages/dev_x/base
-          mkdir -p $OUT_DIR
-          touch $OUT_DIR/zapret_$PKGVER-$ARCH_TAG.$PKGTYPE
-          touch $OUT_DIR/luci-app-zapret_$PKGVER-all.$PKGTYPE
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Install packages
-        id: install
-        if: steps.build.outputs.status == 'success' || steps.build_fake.outputs.status == 'success'
-        working-directory: ${{ env.SDKDIR }}
-        env:
-          ARCH_TAG: ${{ matrix.arch }}
-          SIGN_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
-        run: |
-          find ./bin/packages/*/base -type f ! -regex ".*\(zapret\).*\.[ai]pk$" -delete
-          #echo ">>>>>>> build a repository index to make the output directory usable as local OPKG source"
-          #ln -s `which usign` staging_dir/host/bin/usign
-          #echo "$SIGN_KEY" | base64 -d > key-build
-          #make package/index
-          OUTDIR=$GITHUB_WORKSPACE/$PKGTYPE-$ARCH_TAG
-          mkdir -p $OUTDIR
-          cp -R ./bin/packages/*/base/. $OUTDIR/
-          echo "OUTDIR=$OUTDIR" >> $GITHUB_ENV
-          echo "status=success" >> $GITHUB_OUTPUT
-
-      - name: Compress build logs
-        if: always()
-        env:
-          ARCH_TAG: ${{ matrix.arch }}
-          BRANCH: ${{ matrix.branch }}
-          LOGS_DIR: ${{ env.SDKDIR }}/logs
-        run: |
-          tar -cJvf logs-$BRANCH-$ARCH_TAG.tar.xz $LOGS_DIR
-
-      - name: Upload packages
-        if: steps.install.outcome == 'success'
-        uses: actions/upload-artifact@main
+      - uses: actions/upload-artifact@v7
         with:
-          path: ${{ env.OUTDIR }}
-          name: zapret,${{ env.PKGTYPE }},${{ matrix.arch }}
+          name: pkgs-${{ matrix.bin_subdir }}
+          path: .github/out/
           if-no-files-found: error
 
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
+  luci:
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup packaging tools (apk-tools + ipkg-build)
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo -E apt-get update -qq
+          sudo -E apt-get install -y build-essential fakeroot libssl-dev meson ninja-build
+          git clone https://git.alpinelinux.org/apk-tools apk-tools-src
+          pushd apk-tools-src
+          git checkout b5a31c0d865342ad80be10d68f1bb3d3ad9b0866
+          meson setup build \
+            -Db_lto=true -Dcompressed-help=false -Ddocs=disabled -Dhelp=disabled \
+            -Dlua_version=disabled -Ddefault_library=static -Durl_backend=wget \
+            -Dzstd=false -Dpython=disabled -Dtests=disabled -Dcrypto_backend=openssl
+          ninja -C build
+          sudo meson install -C build --strip
+          popd
+          curl -fsSL "https://raw.githubusercontent.com/openwrt/openwrt/master/scripts/ipkg-build" \
+            | sudo tee /usr/local/bin/ipkg-build > /dev/null
+          sudo chmod +x /usr/local/bin/ipkg-build
+      - name: Setup APK signing key
+        env:
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
+        run: |
+          [ -z "$SIGN_PRIVATE_KEY" ] && exit 0
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          if openssl pkey -in /tmp/sign.raw -noout 2>/dev/null; then
+            cp /tmp/sign.raw /tmp/sign.key
+          elif base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && openssl pkey -in /tmp/sign.dec -noout 2>/dev/null; then
+            cp /tmp/sign.dec /tmp/sign.key
+          else
+            echo "::error::SIGN_PRIVATE_KEY is not a valid PEM private key (raw or base64)"
+            exit 1
+          fi
+          chmod 600 /tmp/sign.key
+          echo "APK_SIGN_KEY=/tmp/sign.key" >> "$GITHUB_ENV"
+      - name: Build luci-app-zapret2 (noarch)
+        run: bash .github/build-luci-zapret2.sh "${{ needs.meta.outputs.version }}"
+      - uses: actions/upload-artifact@v7
         with:
-          path: logs-*.tar.xz
-          name: logs-${{ matrix.branch }}-${{ matrix.arch }}
+          name: pkgs-luci
+          path: .github/out/
+          if-no-files-found: error
 
   release:
-    needs: [ check, build ]
+    needs: [meta, build, luci]
     permissions:
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
         with:
-          pattern: zapret,*
-
-      - name: Put packages into zip
+          pattern: pkgs-*
+          merge-multiple: true
+          path: packages/
+      - name: Publish public signing key
+        # Derive the public key from the private signing key and ship it so users can
+        # trust the signed .apk files. apk matches keys by pubkey hash, not filename,
+        # so the file just needs to land in /etc/apk/keys/ on the client.
         env:
-          TAG: ${{ needs.check.outputs.tag }}
-          DATE: ${{ needs.check.outputs.date }}
-          BUILD_DATE: ${{ needs.check.outputs.build_date }}
-          PKGVER: ${{ needs.build.outputs.pkgver }}
+          SIGN_PRIVATE_KEY: ${{ secrets.SIGN_PRIVATE_KEY }}
         run: |
-          echo "------------- DIR BEG -------------------"
-          ls -la
-          echo "------------- DIR END -------------------"
-          mkdir -p sorted
-          find . -maxdepth 1 -type d -name "zapret,ipk,*" -exec sh -c 'mkdir -p sorted/$(basename "{}" | cut -d, -f3)' \;
-          find . -maxdepth 1 -type d -name "zapret,apk,*" -exec sh -c 'mkdir -p sorted/$(basename "{}" | cut -d, -f3)/apk' \;
-          find . -maxdepth 1 -type d -name "zapret,ipk,*" -exec sh -c 'cp -R "{}/." sorted/$(basename "{}" | cut -d, -f3)' \;
-          find . -maxdepth 1 -type d -name "zapret,apk,*" -exec sh -c 'cp -R "{}/." sorted/$(basename "{}" | cut -d, -f3)/apk' \;
-          LUCI_IPK=$( find . -type f -path "*/zapret,ipk,*/luci-app-zapret*.ipk" -print | head -n 1 )
-          LUCI_APK=$( find . -type f -path "*/zapret,apk,*/luci-app-zapret*.apk" -print | head -n 1 )
-          find ./sorted -mindepth 1 -maxdepth 1 -type d -exec cp -f "$LUCI_IPK" "{}/" \;
-          find ./sorted -mindepth 2 -maxdepth 2 -type d -name "apk" -exec cp -f "$LUCI_APK" "{}/" \;
-          mkdir -p public
-          find ./sorted -mindepth 1 -maxdepth 1 -type d -exec sh -c '7z a ./public/zapret_v${PKGVER}_$(basename "{}" | cut -d, -f3).zip {}/*' \;
-          ls -lh ./public/*.zip
+          [ -z "$SIGN_PRIVATE_KEY" ] && { echo "No signing key — packages are unsigned, no .pub to publish."; exit 0; }
+          printf '%s\n' "$SIGN_PRIVATE_KEY" > /tmp/sign.raw
+          openssl pkey -in /tmp/sign.raw -noout 2>/dev/null || { base64 -d /tmp/sign.raw > /tmp/sign.dec 2>/dev/null && mv /tmp/sign.dec /tmp/sign.raw; }
+          openssl pkey -in /tmp/sign.raw -pubout -out packages/zapret2-1andrevich.pub
+          echo "Published public key:"; cat packages/zapret2-1andrevich.pub
 
-      - name: Upload assets
-        uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.check.outputs.tag }}
+      - name: List assets
+        run: ls -lh packages/
+      - name: Create release
+        uses: softprops/action-gh-release@v3
         with:
-          draft: ${{ env.TEST_BUILD == 'true' || env.FAKE_BUILD == 'true' }}
-          prerelease: true
-          tag_name: v${{ needs.build.outputs.pkgver }}${{ env.TAG_SUFFIX }}
-          name: zapret v${{ needs.build.outputs.pkgver }}
+          tag_name: ${{ needs.meta.outputs.tag }}
+          name: ${{ needs.meta.outputs.tag }}
           body: |
-            zapret v${{ needs.build.outputs.pkgver }} for OpenWrt
-          files: ./public/*.zip
+            ### zapret2 ${{ needs.meta.outputs.tag }}
+
+            Prebuilt zapret2 (nfqws2) packages for OpenWrt, repackaged from
+            [bol-van/zapret2](https://github.com/bol-van/zapret2) static binaries.
+
+            Check your device architecture:
+            ```
+            . /etc/openwrt_release && echo "$DISTRIB_ARCH"
+            ```
+
+            Install the matching `zapret2_*` package (`.apk` on apk systems,
+            `.ipk` on opkg) plus the noarch `luci-app-zapret2` for the LuCI UI.
+
+            **Signed APKs:** to trust them, drop `zapret2-1andrevich.pub` into
+            `/etc/apk/keys/` on the router. Unsigned installs still work with
+            `apk add --allow-untrusted`.
+          files: |
+            packages/*.ipk
+            packages/*.apk
+            packages/*.pub

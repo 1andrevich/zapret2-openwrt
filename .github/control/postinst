@@ -1,0 +1,48 @@
+#!/bin/sh
+# check if we are on real system
+if [ -z "${IPKG_INSTROOT}" ]; then
+	ZAPRET_DIR=/opt/zapret2
+	ZAPRET_INITD=/etc/init.d/zapret2
+	ZAPRET_CFG=/etc/config/zapret2
+	ZAPRET_CONFIG=/opt/zapret2/config
+	ZAPRET_CONFIG_DEF="/opt/zapret2/config.default"
+	# Fix permissions
+	chmod 644 ${ZAPRET_CFG} >/dev/null 2>&1
+	chmod 644 ${ZAPRET_DIR}/ipset/*.txt >/dev/null 2>&1
+	chmod 644 ${ZAPRET_DIR}/ipset_def/*.txt >/dev/null 2>&1
+	chmod 644 ${ZAPRET_DIR}/init.d/openwrt/custom.d/*.sh >/dev/null 2>&1
+	chmod 644 ${ZAPRET_DIR}/config* >/dev/null 2>&1
+	# cleanup custom.d directory
+	rm -f ${ZAPRET_DIR}/init.d/openwrt/custom.d/*-opkg*
+	rm -f ${ZAPRET_DIR}/init.d/openwrt/custom.d/*.opkg*
+	rm -f ${ZAPRET_DIR}/init.d/openwrt/custom.d/*.apk*
+	# creating main config if its not exists
+	if [ ! -f "${ZAPRET_CONFIG}" ]; then
+		cp -f "${ZAPRET_CONFIG_DEF}" "${ZAPRET_CONFIG}"
+	fi
+	# remove fake uci-config
+	[ -f "${ZAPRET_CFG}" ] && [ ! -s "${ZAPRET_CFG}" ] && rm -f "${ZAPRET_CFG}"
+	# check existing uci-config
+	[ -f "${ZAPRET_CFG}" ] && ZAPRET_CFG_EXISTS=1 || ZAPRET_CFG_EXISTS=0
+	# create or merge uci-config
+	/opt/zapret2/uci-def-cfg.sh
+	[ "${ZAPRET_CFG_EXISTS}" = "1" ] && echo "Config /etc/config/zapret2 merged with default uci-config"
+	# remove uci-default script from system dir (used into /etc/init.d/boot)
+	rm -f /etc/uci-defaults/zapret2-uci-def-cfg.sh
+	# copy (sync) all params from uci-config to main config
+	/opt/zapret2/sync_config.sh
+	# check main config
+	sh -n "${ZAPRET_CONFIG}" 2>/dev/null || cp -f "${ZAPRET_CONFIG_DEF}" "${ZAPRET_CONFIG}"
+	sh -n "${ZAPRET_CONFIG}" 2>/dev/null || exit 58
+	# enable main service
+	${ZAPRET_INITD} enable
+	# stop all
+	${ZAPRET_INITD} stop_fw >/dev/null 2>&1
+	${ZAPRET_INITD} stop_daemons >/dev/null 2>&1
+	ps w | grep '/opt/zapret2/nfq2/nfqws2' | grep -v grep | awk '{print $1}' | xargs -r kill -9
+	# start main service
+	${ZAPRET_INITD} start
+	# restart firewall
+	[ -x /sbin/fw4 ] && fw4 -q restart || fw3 -q restart
+fi
+exit 0

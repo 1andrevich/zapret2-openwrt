@@ -1,0 +1,78 @@
+name: watch-upstream
+
+# Poll bol-van/zapret2 for a new release and, when found, bump the package pin and
+# kick off build.yml — so the fork auto-rebuilds every time upstream ships a release.
+# (GitHub can't deliver another repo's release event here, hence the schedule.)
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'   # every 6h, off the hour to dodge cron congestion
+  workflow_dispatch:
+
+permissions:
+  contents: write   # commit the version bump
+  actions: write    # dispatch build.yml
+
+jobs:
+  watch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Compare upstream latest release to our pin
+        id: chk
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG=$(gh api repos/bol-van/zapret2/releases/latest --jq '.tag_name')
+          VER=${TAG#v}
+          # Resolve the tag to its commit SHA (handle both lightweight and annotated tags).
+          REF=$(gh api repos/bol-van/zapret2/git/refs/tags/$TAG)
+          TYPE=$(echo "$REF" | jq -r '.object.type')
+          SHA=$(echo "$REF" | jq -r '.object.sha')
+          if [ "$TYPE" = "tag" ]; then
+            SHA=$(gh api repos/bol-van/zapret2/git/tags/$SHA --jq '.object.sha')
+          fi
+          DATE=$(gh api repos/bol-van/zapret2/commits/$SHA --jq '.commit.committer.date' | cut -dT -f1)
+          CUR=$(grep -oP '^PKG_SOURCE_VERSION:=\K.*' zapret2/Makefile)
+          echo "Upstream: tag=$TAG ver=$VER sha=$SHA date=$DATE"
+          echo "Current pin: $CUR"
+          if [ "$SHA" = "$CUR" ]; then
+            echo "Already up to date."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "changed=true"
+              echo "ver=$VER"
+              echo "sha=$SHA"
+              echo "date=$DATE"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump package pin
+        if: steps.chk.outputs.changed == 'true'
+        run: |
+          VER='${{ steps.chk.outputs.ver }}'
+          SHA='${{ steps.chk.outputs.sha }}'
+          DATE='${{ steps.chk.outputs.date }}'
+          sed -i -E "s/^PKG_VERSION:=.*/PKG_VERSION:=$VER/" zapret2/Makefile luci-app-zapret2/Makefile
+          sed -i -E "s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=$SHA/" zapret2/Makefile
+          sed -i -E "s/^PKG_SOURCE_DATE:=.*/PKG_SOURCE_DATE:=$DATE/" zapret2/Makefile
+          echo "----- zapret2/Makefile head -----"
+          sed -n '7,18p' zapret2/Makefile
+
+      - name: Commit and trigger build
+        if: steps.chk.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add zapret2/Makefile luci-app-zapret2/Makefile
+          git commit -m "zapret2: bump to ${{ steps.chk.outputs.ver }} (nfqws2 ${{ steps.chk.outputs.sha }})"
+          git push
+          # GITHUB_TOKEN-pushed tags don't trigger workflows, so dispatch build.yml
+          # explicitly; its release job tags v<PKG_VERSION> from the (now bumped) Makefile.
+          gh workflow run build.yml --ref master
