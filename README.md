@@ -6,30 +6,23 @@ Zapret — это не VPN! Zapret — это утилита для обхода
 
 ## Установка
 
-Выполните на роутере. Скрипт сам определит архитектуру устройства и последний релиз.
-
-**OpenWrt 24.10+ (apk):**
+### 📶 OpenWrt 25.12+ (APK)
 ```sh
-ARCH=$(. /etc/openwrt_release; echo "$DISTRIB_ARCH")
-VER=$(wget -qO- https://api.github.com/repos/1andrevich/zapret2-openwrt/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n1)
-URL=https://github.com/1andrevich/zapret2-openwrt/releases/download/v$VER
-wget -O /etc/apk/keys/zapret2-1andrevich.pub $URL/zapret2-1andrevich.pub   # добавить ключ подписи (один раз)
-cd /tmp && wget $URL/zapret2_${VER}_${ARCH}.apk $URL/luci-app-zapret2_${VER}_all.apk
-apk add ./zapret2_${VER}_${ARCH}.apk ./luci-app-zapret2_${VER}_all.apk
+wget -O /etc/apk/keys/zapret2-1andrevich.pub https://github.com/1andrevich/zapret2-openwrt/releases/latest/download/zapret2-1andrevich.pub
+wget -O /tmp/zapret2.apk "https://github.com/1andrevich/zapret2-openwrt/releases/latest/download/zapret2_$(. /etc/os-release; echo "$OPENWRT_ARCH").apk"
+wget -O /tmp/luci-app-zapret2.apk https://github.com/1andrevich/zapret2-openwrt/releases/latest/download/luci-app-zapret2.apk
+apk add /tmp/zapret2.apk /tmp/luci-app-zapret2.apk
 ```
 
-**OpenWrt 23.05 (opkg):**
+### 📶 OpenWrt 23.05+ (opkg)
 ```sh
-ARCH=$(. /etc/openwrt_release; echo "$DISTRIB_ARCH")
-VER=$(wget -qO- https://api.github.com/repos/1andrevich/zapret2-openwrt/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p' | head -n1)
-URL=https://github.com/1andrevich/zapret2-openwrt/releases/download/v$VER
-cd /tmp && wget $URL/zapret2_${VER}_${ARCH}.ipk $URL/luci-app-zapret2_${VER}_all.ipk
-opkg install ./zapret2_${VER}_${ARCH}.ipk ./luci-app-zapret2_${VER}_all.ipk
+wget -O /tmp/zapret2.ipk "https://github.com/1andrevich/zapret2-openwrt/releases/latest/download/zapret2_$(. /etc/os-release; echo "$OPENWRT_ARCH").ipk"
+wget -O /tmp/luci-app-zapret2.ipk https://github.com/1andrevich/zapret2-openwrt/releases/latest/download/luci-app-zapret2.ipk
+opkg update
+opkg install /tmp/zapret2.ipk /tmp/luci-app-zapret2.ipk
 ```
 
 Сервис запускается автоматически при установке и при загрузке роутера. Настройка — в **LuCI → Службы → Zapret2**.
-
-> Не хотите добавлять ключ подписи? Тогда устанавливайте через `apk add --allow-untrusted ...`.
 
 ## Скриншоты
 
