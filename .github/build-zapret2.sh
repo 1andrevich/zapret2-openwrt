@@ -112,6 +112,8 @@ EOF
     install -m755 "$CTRL/prerm"    "$IPK/CONTROL/prerm"
     install -m755 "$CTRL/postrm"   "$IPK/CONTROL/postrm"
     fakeroot ipkg-build -m "" "$IPK" "$OUT_DIR"
+    # drop the version from the filename so releases/latest/download/<name> is stable
+    mv -f "$OUT_DIR/zapret2_${PKG_VERSION}_${OW_ARCH}.ipk" "$OUT_DIR/zapret2_${OW_ARCH}.ipk"
     rm -rf "$IPK"
 
     # ---- APK ----
@@ -140,7 +142,7 @@ EOF
         --script "post-deinstall:$CTRL/postrm" \
         ${APK_SIGN_KEY:+--sign-key "$APK_SIGN_KEY"} \
         --files "$APK" \
-        --output "$OUT_DIR/zapret2_${PKG_VERSION}_${OW_ARCH}.apk"
+        --output "$OUT_DIR/zapret2_${OW_ARCH}.apk"
     rm -rf "$APK" "$BASE"
     echo "Done: $OW_ARCH"
 done

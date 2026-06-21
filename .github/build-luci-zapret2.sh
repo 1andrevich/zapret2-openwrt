@@ -51,6 +51,7 @@ Description: LuCI support for zapret2
 EOF
 install -m755 "$POSTINST" "$IPK/CONTROL/postinst"
 fakeroot ipkg-build -m "" "$IPK" "$OUT_DIR"
+mv -f "$OUT_DIR/luci-app-zapret2_${PKG_VERSION}_all.ipk" "$OUT_DIR/luci-app-zapret2.ipk"
 rm -rf "$IPK"
 
 # ---- APK (arch:noarch — arch:all is uninstallable on OpenWrt apk) ----
@@ -70,6 +71,6 @@ apk mkpkg \
     --script "post-upgrade:$POSTINST" \
     ${APK_SIGN_KEY:+--sign-key "$APK_SIGN_KEY"} \
     --files "$APK" \
-    --output "$OUT_DIR/luci-app-zapret2_${PKG_VERSION}_all.apk"
+    --output "$OUT_DIR/luci-app-zapret2.apk"
 rm -rf "$APK" "$BASE" "$POSTINST"
 echo "Done: luci-app-zapret2 (noarch)"
