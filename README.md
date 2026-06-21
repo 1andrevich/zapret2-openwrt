@@ -26,5 +26,5 @@ opkg install /tmp/zapret2.ipk /tmp/luci-app-zapret2.ipk
 
 ## Скриншоты
 
-![image](https://github.com/user-attachments/assets/b79940b3-6a0d-4310-bd58-e461be004397)
+![image](<img width="612" height="610" alt="image" src="https://github.com/user-attachments/assets/4ad3eac5-44a6-493c-a001-997d0c1a36eb" />)
 
