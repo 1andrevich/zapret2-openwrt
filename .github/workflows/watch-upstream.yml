@@ -77,9 +77,13 @@ jobs:
           git checkout -b "$BRANCH"
           git add zapret2/Makefile luci-app-zapret2/Makefile
           git commit -m "zapret2: bump to $VER (nfqws2 $SHA)"
-          # Force-push: this branch is fully regenerated from zap1's HEAD each run, so
-          # any stale copy left over from a prior failed run is safe to overwrite.
-          git push -u --force origin "$BRANCH"
+          # The repo ruleset blocks force-push on this branch too, so if a prior failed
+          # run left it stranded (unmerged, no open PR), delete it first — a plain
+          # delete + fresh push is not a force-push and needs no PR of its own.
+          if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
+            git push origin --delete "$BRANCH"
+          fi
+          git push -u origin "$BRANCH"
           # zap1 requires changes via PR, so we can't push straight to it; auto-merge
           # once required checks/reviews (if any) pass. build.yml then fires on the
           # resulting push to zap1 (see its `on.push` trigger).
