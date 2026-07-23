@@ -77,11 +77,14 @@ jobs:
           git checkout -b "$BRANCH"
           git add zapret2/Makefile luci-app-zapret2/Makefile
           git commit -m "zapret2: bump to $VER (nfqws2 $SHA)"
-          git push -u origin "$BRANCH"
-          gh pr create --base zap1 --head "$BRANCH" \
-            --title "zapret2: bump to $VER" \
-            --body "Automated bump of nfqws2 to \`$VER\` (upstream commit \`$SHA\`)."
+          # Force-push: this branch is fully regenerated from zap1's HEAD each run, so
+          # any stale copy left over from a prior failed run is safe to overwrite.
+          git push -u --force origin "$BRANCH"
           # zap1 requires changes via PR, so we can't push straight to it; auto-merge
           # once required checks/reviews (if any) pass. build.yml then fires on the
           # resulting push to zap1 (see its `on.push` trigger).
-          gh pr merge "$BRANCH" --auto --squash
+          gh pr create --base zap1 --head "$BRANCH" \
+            --title "zapret2: bump to $VER" \
+            --body "Automated bump of nfqws2 to \`$VER\` (upstream commit \`$SHA\`)." \
+            || echo "PR for $BRANCH may already be open, continuing"
+          gh pr merge "$BRANCH" --auto --squash --delete-branch
