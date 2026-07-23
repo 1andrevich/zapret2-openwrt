@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # commit the version bump
-  actions: write    # dispatch build.yml
+  contents: write       # push the bump branch
+  pull-requests: write  # open + auto-merge the PR
 
 jobs:
   watch:
@@ -63,16 +63,25 @@ jobs:
           echo "----- zapret2/Makefile head -----"
           sed -n '7,18p' zapret2/Makefile
 
-      - name: Commit and trigger build
+      - name: Open PR with version bump
         if: steps.chk.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
+          VER='${{ steps.chk.outputs.ver }}'
+          SHA='${{ steps.chk.outputs.sha }}'
+          BRANCH="bump-nfqws2-$VER"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
           git add zapret2/Makefile luci-app-zapret2/Makefile
-          git commit -m "zapret2: bump to ${{ steps.chk.outputs.ver }} (nfqws2 ${{ steps.chk.outputs.sha }})"
-          git push
-          # GITHUB_TOKEN-pushed tags don't trigger workflows, so dispatch build.yml
-          # explicitly; its release job tags v<PKG_VERSION> from the (now bumped) Makefile.
-          gh workflow run build.yml --ref master
+          git commit -m "zapret2: bump to $VER (nfqws2 $SHA)"
+          git push -u origin "$BRANCH"
+          gh pr create --base zap1 --head "$BRANCH" \
+            --title "zapret2: bump to $VER" \
+            --body "Automated bump of nfqws2 to \`$VER\` (upstream commit \`$SHA\`)."
+          # zap1 requires changes via PR, so we can't push straight to it; auto-merge
+          # once required checks/reviews (if any) pass. build.yml then fires on the
+          # resulting push to zap1 (see its `on.push` trigger).
+          gh pr merge "$BRANCH" --auto --squash

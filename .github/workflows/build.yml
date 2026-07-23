@@ -1,6 +1,10 @@
 name: build
 
 on:
+  push:
+    branches: [zap1]
+    paths:
+      - zapret2/Makefile
   workflow_dispatch:
 
 jobs:
