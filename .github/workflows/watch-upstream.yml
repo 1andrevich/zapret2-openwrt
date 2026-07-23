@@ -74,21 +74,28 @@ jobs:
           BRANCH="bump-nfqws2-$VER"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
-          git add zapret2/Makefile luci-app-zapret2/Makefile
-          git commit -m "zapret2: bump to $VER (nfqws2 $SHA)"
-          # The repo ruleset blocks force-push on this branch too, so if a prior failed
-          # run left it stranded (unmerged, no open PR), delete it first — a plain
-          # delete + fresh push is not a force-push and needs no PR of its own.
+          # A repo ruleset blocks force-push and deletion on any branch, so a prior
+          # failed run's branch can't be rewritten or cleaned up — reuse it instead of
+          # minting a new one (this runs on a 6h cron, so retries must be idempotent).
           if git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null; then
-            git push origin --delete "$BRANCH"
+            echo "Branch $BRANCH already exists on origin, reusing it."
+          else
+            git checkout -b "$BRANCH"
+            git add zapret2/Makefile luci-app-zapret2/Makefile
+            git commit -m "zapret2: bump to $VER (nfqws2 $SHA)"
+            git push -u origin "$BRANCH"
           fi
-          git push -u origin "$BRANCH"
-          # zap1 requires changes via PR, so we can't push straight to it; auto-merge
-          # once required checks/reviews (if any) pass. build.yml then fires on the
-          # resulting push to zap1 (see its `on.push` trigger).
-          gh pr create --base zap1 --head "$BRANCH" \
-            --title "zapret2: bump to $VER" \
-            --body "Automated bump of nfqws2 to \`$VER\` (upstream commit \`$SHA\`)." \
-            || echo "PR for $BRANCH may already be open, continuing"
-          gh pr merge "$BRANCH" --auto --squash --delete-branch
+          # zap1 requires changes via PR, so we can't push straight to it. Open the PR
+          # if it isn't already open. build.yml then fires on the resulting push to zap1
+          # (see its `on.push` trigger).
+          if ! gh pr view "$BRANCH" > /dev/null 2>&1; then
+            gh pr create --base zap1 --head "$BRANCH" \
+              --title "zapret2: bump to $VER" \
+              --body "Automated bump of nfqws2 to \`$VER\` (upstream commit \`$SHA\`)."
+          fi
+          # zap1 has no required status checks, so the PR is immediately mergeable and
+          # `--auto` is rejected ("clean status"). Try a direct merge; fall back to
+          # queuing auto-merge only if the merge is currently blocked (e.g. checks were
+          # added later and are still pending).
+          gh pr merge "$BRANCH" --squash \
+            || gh pr merge "$BRANCH" --squash --auto
