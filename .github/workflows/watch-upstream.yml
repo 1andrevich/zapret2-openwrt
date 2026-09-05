@@ -12,6 +12,7 @@ on:
 permissions:
   contents: write       # push the bump branch
   pull-requests: write  # open + auto-merge the PR
+  actions: write        # dispatch build.yml (GITHUB_TOKEN can't trigger on.push)
 
 jobs:
   watch:
@@ -64,6 +65,7 @@ jobs:
           sed -n '7,18p' zapret2/Makefile
 
       - name: Open PR with version bump
+        id: pr
         if: steps.chk.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,8 +88,7 @@ jobs:
             git push -u origin "$BRANCH"
           fi
           # zap1 requires changes via PR, so we can't push straight to it. Open the PR
-          # if it isn't already open. build.yml then fires on the resulting push to zap1
-          # (see its `on.push` trigger).
+          # if it isn't already open.
           if ! gh pr view "$BRANCH" > /dev/null 2>&1; then
             gh pr create --base zap1 --head "$BRANCH" \
               --title "zapret2: bump to $VER" \
@@ -96,6 +97,21 @@ jobs:
           # zap1 has no required status checks, so the PR is immediately mergeable and
           # `--auto` is rejected ("clean status"). Try a direct merge; fall back to
           # queuing auto-merge only if the merge is currently blocked (e.g. checks were
-          # added later and are still pending).
-          gh pr merge "$BRANCH" --squash \
-            || gh pr merge "$BRANCH" --squash --auto
+          # added later and are still pending). Only the direct merge lands the commit
+          # on zap1 synchronously, so only then is it safe to dispatch the build.
+          if gh pr merge "$BRANCH" --squash; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+          else
+            gh pr merge "$BRANCH" --squash --auto
+            echo "merged=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Trigger build
+        if: steps.pr.outputs.merged == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # build.yml's `on: push` never fires for the merge above — GitHub suppresses
+        # workflow runs from events created with GITHUB_TOKEN, to prevent recursion.
+        # workflow_dispatch is one of the two documented exceptions to that rule, so
+        # kick the build off explicitly against the freshly merged zap1.
+        run: gh workflow run build.yml --ref zap1
