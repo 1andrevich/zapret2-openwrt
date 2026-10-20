@@ -70,6 +70,50 @@ udp_probe() {
         return 1
     fi
 
+    if command -v socat >/dev/null 2>&1; then
+        local T_START=$(if [ -f /proc/uptime ]; then read -r up _ < /proc/uptime; awk "BEGIN {print int($up * 1000)}" 2>/dev/null || echo 0; else date +%s000 2>/dev/null || echo 0; fi)
+        local SEC=$(awk "BEGIN {print $timeout_ms / 1000}" 2>/dev/null || echo 2)
+        local REQ_FILE="$TMP_FILE.req"
+        local RESP_FILE="$TMP_FILE.resp"
+        rm -f "$RESP_FILE" "$REQ_FILE" 2>/dev/null
+        if [ "$mode" = "discord" ]; then
+            printf '\x00\x01\x00\x46\x00\x00\x30\x39\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00' > "$REQ_FILE"
+        else
+            printf '\x00\x01\x00\x00\x21\x12\xa4\x42\x12\x34\x56\x78\x9a\xbc\xde\xf0\x12\x34\x56\x78' > "$REQ_FILE"
+        fi
+        socat -t "$SEC" -T "$SEC" - UDP:"$ip":"$port" < "$REQ_FILE" > "$RESP_FILE" 2>/dev/null &
+        local SOCAT_PID=$!
+        while kill -0 "$SOCAT_PID" 2>/dev/null; do
+            if [ -s "$RESP_FILE" ]; then
+                usleep 20000 2>/dev/null
+                kill "$SOCAT_PID" 2>/dev/null
+                break
+            fi
+            usleep 10000 2>/dev/null || sleep 0.01 2>/dev/null
+        done
+        wait "$SOCAT_PID" 2>/dev/null
+        local SIZE=$(wc -c < "$RESP_FILE" 2>/dev/null || echo 0)
+        local T_END=$(if [ -f /proc/uptime ]; then read -r up _ < /proc/uptime; awk "BEGIN {print int($up * 1000)}" 2>/dev/null || echo 0; else date +%s000 2>/dev/null || echo 0; fi)
+        local DT=$((T_END - T_START))
+        [ "$DT" -le 0 ] && DT=1
+        if [ "$mode" = "discord" ]; then
+            if [ "$SIZE" -ge 70 ]; then
+                local EXT_IP=$(tail -c +9 "$RESP_FILE" 2>/dev/null | tr -d '\0' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+                echo "OK|${DT}|${EXT_IP}"
+            else
+                echo "FAIL|${DT}"
+            fi
+        else
+            if [ "$SIZE" -ge 20 ]; then
+                echo "OK|${DT}|"
+            else
+                echo "FAIL|${DT}"
+            fi
+        fi
+        rm -f "$REQ_FILE" "$RESP_FILE" 2>/dev/null
+        return 0
+    fi
+
     if command -v luajit >/dev/null 2>&1; then
         luajit - "$mode" "$ip" "$port" "$timeout_ms" << 'EOF'
 local ffi = require("ffi")
