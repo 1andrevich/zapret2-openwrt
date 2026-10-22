@@ -28,6 +28,7 @@
 			}
 		},
 		"write": {
+                "ubus": { "rc": [ "init" ] },
 			"file": {
 				"/opt/zapret2/config": [ "write" ],
 				"/opt/zapret2/ipset/*": [ "write" ],

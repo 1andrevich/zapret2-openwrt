@@ -78,10 +78,10 @@ return baseclass.extend({
     }),
 
     callInitAction: rpc.declare({
-        object: 'luci',
-        method: 'setInitAction',
+        object: 'rc',
+        method: 'init',
         params: [ 'name', 'action' ],
-        expect: { result: false }
+        expect: { '': {} }
     }),
 
     getSvcInfo: function(svc_name = null) {
@@ -146,9 +146,6 @@ return baseclass.extend({
     {
         console.log('handleServiceAction: '+name+' '+action);
         return this.callInitAction(name, action).then(success => {
-            if (!success) {
-                throw _('Command failed');
-            }
             return true;
         }).catch(e => {
             ui.addNotification(null, E('p', _('Service action failed "%s %s": %s').format(name, action, e)));
