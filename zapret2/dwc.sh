@@ -115,8 +115,8 @@ TEST_SUITE='
 	openwrt.org           | +  |  60000 | https://openwrt.org/lib/tpl/bootstrap3/assets/bootstrap/default/bootstrap.min.css
 	ntc.party             | @# | 200000 | https://ntc.party
 	sxyprn.net            | @# | 310000 | https://sxyprn.net
-	pornhub.com           | @# | 700000 | https://pornhub.com
-	spankbang.com         | @# |  80000 | https://spankbang.com
+	pornhub.com           | @# | 250000 | https://pornhub.com
+	spankbang.com         | @# |   4000 | https://spankbang.com
 	discord.com           | @# | 120000 | https://discord.com
 	x.com                 | @  |  39000 | https://abs.twimg.com/fonts/v1/chirp-extended-heavy-web.woff2
 	flightradar24.com     | @  | 100000 | https://www.flightradar24.com/mobile/airlines?format=2&version=0
@@ -127,9 +127,9 @@ TEST_SUITE='
 '
 
 if [ "$opt_sites" = true ]; then
-	CURL_TIMEOUT=7
+	CURL_TIMEOUT=15
 else
-	CURL_TIMEOUT=7
+	CURL_TIMEOUT=15
 	TEST_SUITE=$( cat "$TEST_SUITE_FN" )
 fi
 
@@ -167,8 +167,8 @@ done <<EOF
 $TEST_SUITE
 EOF
 
-CURL_CON_TIMEOUT=$((CURL_TIMEOUT-2))
-CURL_SPEED_TIME=$((CURL_TIMEOUT-2))
+CURL_CON_TIMEOUT=10
+CURL_SPEED_TIME=10
 CURL_SPEED_LIMIT=1
 
 while IFS='|' read -r ID TAG COUNTRY PROVIDER TSIZE URL; do
@@ -203,35 +203,13 @@ while IFS='|' read -r ID TAG COUNTRY PROVIDER TSIZE URL; do
 	#echo "TAG=$TAG , COUNTRY=$COUNTRY , PROVIDER=$PROVIDER , DOMAIN=$DOMAIN , URL=$URL"
 	FNAME="$ZAP_TMP_DIR/$ID3=$TAG=$PROVIDER=$TSIZE"
 	(
-		echo ">>>>> Request destination IP-addr"
-		DST_IP=
 		RESOLVE_OPT=
 		if [ "$opt_dig" != "" ]; then
 			RESP=$( dig +time=2 +retry=1 $OPT_DIG_DNS +short "$DOMAIN" 2>&1 )
 			echo "$RESP"
 			DST_IP=$( echo "$RESP" | grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 )
-		else
-			CURL_TIMEOUTS="--connect-timeout 3 --max-time 4 --speed-time 4 --speed-limit 1"
-			RESP=$( curl -4 -I --no-progress-meter $CURL_TIMEOUTS -w '%{remote_ip}\n' "$URL" 2>&1 )
-			echo "$RESP"
-			DST_IP=$( echo "$RESP" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1 )
-			if [ -z "$DST_IP" ]; then
-				echo "----------------------------------"
-				RESP=$( curl -4 --no-progress-meter $CURL_TIMEOUTS -r 0-0 -w '%{remote_ip}\n' "$URL" 2>&1 )
-				echo "$RESP"
-				DST_IP=$( echo "$RESP" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | tail -1 )
-			fi
+			[ "$DST_IP" != "" ] && RESOLVE_OPT="--resolve $DOMAIN:443:$DST_IP"
 		fi
-		if [ "$DST_IP" = "" ]; then
-			echo ">>>>> PING"
-			RESP=$( ping -c1 "$DOMAIN" 2>&1 )
-			echo "$RESP"
-			DST_IP=$( echo "$RESP" | sed -n '1s/.*(\([0-9.]*\)).*/\1/p' )
-		fi
-		echo ">>>>> Destination IP-addr:"
-		echo "$DST_IP"
-		[ "$DST_IP" != "" ] && RESOLVE_OPT="--resolve $DOMAIN:443:$DST_IP"
-		echo "$DST_IP" > "$FNAME.ip"
 		echo "$URL" > "$FNAME.url"
 		echo ">>>>> Download target body"
 		curl "$URL" \
@@ -244,7 +222,13 @@ while IFS='|' read -r ID TAG COUNTRY PROVIDER TSIZE URL; do
 			$RANGETO \
 			-A "$USERAGENT" \
 			-D "$FNAME.hdr" \
-			-o "$FNAME.body"
+			-o "$FNAME.body" \
+			-w '%{remote_ip}' > "$FNAME.ip"
+
+		if [ ! -s "$FNAME.ip" ] || [ "$(cat "$FNAME.ip")" = "0.0.0.0" ]; then
+			DST_IP=$( nslookup "$DOMAIN" 2>/dev/null | awk '/^Address[ 0-9]*: [0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/ {print $NF; exit}' )
+			[ -n "$DST_IP" ] && echo "$DST_IP" > "$FNAME.ip"
+		fi
 	) > "$FNAME.log" 2>&1 &
 done < "$TARGET_LIST_FILE"
 

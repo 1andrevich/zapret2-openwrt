@@ -39,7 +39,7 @@ CONFFILES="$(cat "$CTRL/conffiles")"
 # Makefile are dropped: the prebuilt binaries are statically linked and don't load
 # them. opkg/ipk wants a comma-separated list; apk wants space-separated (passing
 # commas makes apk treat "nftables," — with the comma — as the package name).
-PKG_DEPENDS="nftables, curl, gzip, coreutils, coreutils-sort, coreutils-sleep, kmod-nft-nat, kmod-nft-offload, kmod-nft-queue"
+PKG_DEPENDS="nftables, curl, gzip, socat, coreutils, coreutils-sort, coreutils-sleep, kmod-nft-nat, kmod-nft-offload, kmod-nft-queue"
 APK_DEPENDS="${PKG_DEPENDS//, / }"
 
 stage_base() {
