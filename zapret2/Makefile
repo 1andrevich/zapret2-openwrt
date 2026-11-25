@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=zapret2
-PKG_VERSION:=1.0.7
+PKG_VERSION:=1.0.8
 PKG_RELEASE:=1
 
 PKG_MAINTAINER:=bol-van
@@ -14,8 +14,8 @@ PKG_LICENSE_FILES:=docs/LICENSE.txt
 
 PKG_SOURCE_URL:=https://github.com/bol-van/zapret2.git
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_VERSION:=038c97e5819df10f8e8c22a2f1fffe57f2f7379b
-PKG_SOURCE_DATE:=2026-11-05
+PKG_SOURCE_VERSION:=93fbe9af8110107f44b70dba1ee956a0902f65b6
+PKG_SOURCE_DATE:=2026-11-25
 
 #PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 #PKG_SOURCE_URL:=https://github.com/bol-van/zapret2/archive/refs/tags/v$(PKG_VERSION).tar.gz?
