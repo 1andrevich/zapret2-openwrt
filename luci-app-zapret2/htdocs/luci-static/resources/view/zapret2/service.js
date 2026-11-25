@@ -26,6 +26,7 @@ return view.extend({
             "restart" : elems.btn_restart || document.getElementById('btn_restart'),
             "stop"    : elems.btn_stop    || document.getElementById('btn_stop'),
             "reset"   : elems.btn_reset   || document.getElementById('btn_reset'),
+            "test"    : elems.btn_test    || document.getElementById('btn_test'),
             "diag"    : elems.btn_diag    || document.getElementById('btn_diag'),
             "update"  : elems.btn_update  || document.getElementById('btn_update'),
         };
@@ -374,9 +375,12 @@ return view.extend({
         btn_reset.onclick   = L.bind(this.dialogResetCfg, this);
         layout_append(_('Reset settings to default'), null, [ btn_reset ] );
 
+        let btn_test        = create_btn('btn_test',  btn_style_action, _('Тест стратегии'));
+        btn_test.onclick    = ui.createHandlerFn(this, () => { diagnost.openDiagnostDialog(this.pkg_arch, true) });
+
         let btn_diag        = create_btn('btn_diag',  btn_style_action, _('Diagnostics'));
-        btn_diag.onclick    = ui.createHandlerFn(this, () => { diagnost.openDiagnostDialog(this.pkg_arch) });
-        layout_append('Diagnostic tools', null, [ btn_diag ] );
+        btn_diag.onclick    = ui.createHandlerFn(this, () => { diagnost.openDiagnostDialog(this.pkg_arch, false) });
+        layout_append('Diagnostic tools', null, [ btn_test, btn_diag ] );
 
         let btn_update      = create_btn('btn_update',  btn_style_action, _('Upgrade…'));
         btn_update.onclick  = ui.createHandlerFn(this, () => { updater.openUpdateDialog(this.pkg_arch) });
@@ -390,6 +394,7 @@ return view.extend({
             "btn_restart": btn_restart,
             "btn_stop": btn_stop,
             "btn_reset": btn_reset,
+            "btn_test": btn_test,
             "btn_diag": btn_diag,
             "btn_update": btn_update,
         };
